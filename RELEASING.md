@@ -2,94 +2,66 @@
 
 OpenTelemetry Java Contrib uses [SemVer standard](https://semver.org) for versioning of its artifacts.
 
-Instead of manually specifying project version (and by extension the version of built artifacts)
-in gradle build scripts, we use [nebula-release-plugin](https://github.com/nebula-plugins/nebula-release-plugin)
-to calculate the current version based on git tags. This plugin looks for the latest tag of the form
-`vX.Y.Z` on the current branch and calculates the current project version as `vX.Y.(Z+1)-SNAPSHOT`.
+The version is specified in [version.gradle.kts](version.gradle.kts).
 
 ## Snapshot builds
-Every successful CI build of the master branch automatically executes `./gradlew snapshot` as the last task.
-This signals Nebula plugin to build and publish to
-[Sonatype OSS snapshots repository](https://oss.sonatype.org/content/repositories/snapshots/io/opentelemetry/)
-next _minor_ release version. This means version `vX.(Y+1).0-SNAPSHOT`.
 
-## Starting the Release
+Every successful CI build of the main branch automatically executes `./gradlew publishToSonatype`
+as the last step, which publishes a snapshot build to
+[Sonatype OSS snapshots repository](https://oss.sonatype.org/content/repositories/snapshots/io/opentelemetry/contrib/).
 
-Before making the release, merge a PR to `main` updating the `CHANGELOG.md`. You can use the script
-at `buildscripts/draft-change-log-entries.sh` to help create an initial draft. We typically only
-include end-user facing changes in the change log.
+## Preparing a new major or minor release
 
-Open the release build workflow in your browser [here](https://github.com/open-telemetry/opentelemetry-java-contrib/actions/workflows/release-build.yml).
+* Close the release milestone if there is one.
+* Merge a pull request to `main` updating the `CHANGELOG.md`.
+  * The heading for the release should include the release version but not the release date, e.g.
+    `## Version 1.9.0 (unreleased)`.
+  * Use `.github/scripts/draft-change-log-entries.sh` as a starting point for writing the change
+    log.
+* Run the [Prepare release branch workflow](https://github.com/open-telemetry/opentelemetry-java-contrib/actions/workflows/prepare-release-branch.yml).
+* Review and merge the two pull requests that it creates
+  (one is targeted to the release branch and one is targeted to the `main` branch).
 
-You will see a button that says "Run workflow". Press the button, enter the version number you want
-to release in the input field that pops up, and then press "Run workflow".
+## Preparing a new patch release
 
-This triggers the release process, which builds the artifacts, publishes the artifacts, and creates
-and pushes a git tag with the version number.
+All patch releases should include only bug-fixes, and must avoid adding/modifying the public APIs.
 
-Once the GitHub workflow completes, go to Github
-[release page](https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases),
-find the draft release created by the release workflow, and
-* Select the checkbox for "Create a discussion for this release"
-* Press the "Publish release" button
+In general, patch releases are only made for regressions, memory leaks and deadlocks.
 
-### Notifying other OpenTelemetry projects
+* Backport pull request(s) to the release branch.
+  * Run the [Backport workflow](https://github.com/open-telemetry/opentelemetry-java-contrib/actions/workflows/backport.yml).
+  * Press the "Run workflow" button, then select the release branch from the dropdown list,
+    e.g. `release/v1.9.x`, then enter the pull request number that you want to backport,
+    then click the "Run workflow" button below that.
+  * Review and merge the backport pull request that it generates.
+* Merge a pull request to the release branch updating the `CHANGELOG.md`.
+  * The heading for the release should include the release version but not the release date, e.g.
+    `## Version 1.9.0 (unreleased)`.
+* Run the [Prepare patch release workflow](https://github.com/open-telemetry/opentelemetry-java-contrib/actions/workflows/prepare-patch-release.yml).
+  * Press the "Run workflow" button, then select the release branch from the dropdown list,
+    e.g. `release/v1.9.x`, and click the "Run workflow" button below that.
+* Review and merge the pull request that it creates.
 
-When cutting a new release, the relevant integration tests for components in other opentelemetry projects need to be updated.
+## Making the release
 
-- OpenTelemetry Collector contrib JMX receiver - [Downloads latest version here](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/receiver/jmxreceiver/integration_test.go)
+Run the [Release workflow](https://github.com/open-telemetry/opentelemetry-java-contrib/actions/workflows/release.yml).
 
-## Patch Release
+* Press the "Run workflow" button, then select the release branch from the dropdown list,
+  e.g. `release/v1.9.x`, and click the "Run workflow" button below that.
+* This workflow will publish the artifacts to maven central and will publish a GitHub release
+  with release notes based on the change log and with the jmx metrics jar attached.
+* Review and merge the pull request that the release workflow creates against the release branch
+  which adds the release date to the change log.
 
-All patch releases should include only bug-fixes, and must avoid
-adding/modifying the public APIs.
+## After the release
 
-Open the patch release build workflow in your browser [here](https://github.com/open-telemetry/opentelemetry-java-contrib/actions/workflows/patch-release-build.yml).
+Run the [Merge change log to main workflow](https://github.com/open-telemetry/opentelemetry-java-contrib/actions/workflows/merge-change-log-to-main.yml).
 
-You will see a button that says "Run workflow". Press the button, enter the version number you want
-to release in the input field for version that pops up and the commits you want to cherrypick for the
-patch as a comma-separated list. Then, press "Run workflow".
-
-If the commits cannot be cleanly applied to the release branch, for example because it has diverged
-too much from main, then the workflow will fail before building. In this case, you will need to
-prepare the release branch manually.
-
-This example will assume patching into release branch `v1.2.x` from a git repository with remotes
-named `origin` and `upstream`.
-
-```
-$ git remote -v
-origin	git@github.com:username/opentelemetry-java-contrib.git (fetch)
-origin	git@github.com:username/opentelemetry-java-contrib.git (push)
-upstream	git@github.com:open-telemetry/opentelemetry-java-contrib.git (fetch)
-upstream	git@github.com:open-telemetry/opentelemetry-java-contrib.git (push)
-```
-
-First, checkout the release branch
-
-```
-git fetch upstream v1.2.x
-git checkout upstream/v1.2.x
-```
-
-Apply cherrypicks manually and commit. It is ok to apply multiple cherrypicks in a single commit.
-Use a commit message such as "Manual cherrypick for commits commithash1, commithash2".
-
-After committing the change, push to your fork's branch.
-
-```
-git push origin v1.2.x
-```
-
-Create a PR to have code review and merge this into upstream's release branch. As this was not
-applied automatically, we need to do code review to make sure the manual cherrypick is correct.
-
-After it is merged, Run the patch release workflow again, but leave the commits input field blank.
-The release will be made with the current state of the release branch, which is what you prepared
-above.
-
-Once the GitHub workflow completes, go to Github
-[release page](https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases),
-find the draft release created by the release workflow, and
-* Select the checkbox for "Create a discussion for this release"
-* Press the "Publish release" button
+* Press the "Run workflow" button, then select the release branch from the dropdown list,
+  e.g. `release/v1.9.x`, and click the "Run workflow" button below that.
+* This will create a pull request that merges the change log updates from the release branch
+  back to main.
+* Review and merge the pull request that it creates.
+* This workflow will fail if there have been conflicting change log updates introduced in main,
+  in which case you will need to merge the change log updates manually and send your own pull
+  request against main.
